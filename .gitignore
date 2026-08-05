@@ -1,0 +1,5 @@
+.venv/
+data/base_model/
+data/model_LoRA/
+output/
+__pycache__/
