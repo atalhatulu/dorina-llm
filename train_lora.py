@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Qwen2.5-Instruct + LoRA finetune (CPU). merve verisi ile."""
+"""Qwen2.5-Instruct + LoRA finetune (CPU). merve verisi ile. trl yeni API."""
 import json, os
 from datasets import load_dataset
 from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig
 from trl import SFTTrainer
 
-MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
+MODEL = "data/base_model"
 OUT_DIR = "output/server"
 MAX_SEQ = 512
 
@@ -16,12 +16,12 @@ def main():
         "validation": "data/turkish_instruct_val.jsonl",
     })
     print("Dataset yüklendi:", ds)
-    token = ds["train"]["messages"][0]
-    print("Örnek:", json.dumps(token, ensure_ascii=False)[:200])
+    print("Örnek:", json.dumps(ds["train"]["messages"][0], ensure_ascii=False)[:200])
 
     tok = AutoTokenizer.from_pretrained(MODEL)
     if tok.pad_token is None:
         tok.pad_token = tok.eos_token
+    tok.model_max_length = MAX_SEQ
 
     model = AutoModelForCausalLM.from_pretrained(MODEL)
     lora = LoraConfig(
@@ -30,10 +30,7 @@ def main():
                         "gate_proj", "up_proj", "down_proj"],
         lora_dropout=0.05, bias="none", task_type="CAUSAL_LM",
     )
-    model = get_peft_model(model, lora)
-    model.print_trainable_parameters()
 
-    os.makedirs(OUT_DIR, exist_ok=True)
     args = TrainingArguments(
         output_dir=OUT_DIR,
         per_device_train_batch_size=1,
@@ -49,14 +46,16 @@ def main():
         save_total_limit=2,
         use_cpu=True,
         dataloader_num_workers=0,
+        report_to=[],
     )
 
     trainer = SFTTrainer(
-        model=model, tokenizer=tok, args=args,
+        model=model,
+        args=args,
         train_dataset=ds["train"],
         eval_dataset=ds["validation"],
-        max_seq_length=MAX_SEQ,
-        dataset_text_field="messages",
+        processing_class=tok,
+        peft_config=lora,
     )
     trainer.train()
     trainer.save_model("data/model_LoRA")
